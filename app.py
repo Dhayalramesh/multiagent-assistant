@@ -8,7 +8,7 @@ st.markdown("Ask a question, and the agent will **search Wikipedia** and show th
 
 # Wikipedia requires a User-Agent
 HEADERS = {
-    "User-Agent": "MultiAgentResearchAssistant/1.0 (https://streamlit.io; your-email@example.com)"
+    "User-Agent": "MultiAgentResearchAssistant/1.0 (https://streamlit.io)"
 }
 
 def clean_query(query):
@@ -31,38 +31,15 @@ def clean_query(query):
             break
     if not cleaned:
         cleaned = query.strip()
-    
-    # Special cases
-    cleaned = cleaned.strip()
-    if cleaned.lower() == "ai":
-        return "AI"
-    if cleaned.lower() == "c++":
-        return "C++"
-    if cleaned.lower() == "c#":
-        return "C#"
-    if cleaned.lower() == "r":
-        return "R (programming language)"
-    return cleaned.capitalize()
+    return cleaned.strip().capitalize()
 
 def search_wikipedia(query):
     """
-    Try to find a Wikipedia page for the query.
-    First try direct page summary; if that fails, use the search API.
+    Search Wikipedia and return the best matching article summary.
     """
     search_term = clean_query(query)
-
-    # 1) Direct page summary
-    direct_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{quote(search_term)}"
-    try:
-        resp = requests.get(direct_url, headers=HEADERS, timeout=5)
-        if resp.status_code == 200:
-            data = resp.json()
-            if "extract" in data:
-                return data["extract"], search_term
-    except:
-        pass
-
-    # 2) Fallback: use the search API
+    
+    # Step 1: Try the search API to find the most relevant article
     search_url = (
         f"https://en.wikipedia.org/w/api.php"
         f"?action=query&list=search&srsearch={quote(query)}&format=json"
@@ -72,25 +49,52 @@ def search_wikipedia(query):
         if resp.status_code == 200:
             data = resp.json()
             results = data.get("query", {}).get("search", [])
-            if results:
-                # Take the first result's title
-                title = results[0]["title"]
-                # Fetch its summary
-                summary_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{quote(title)}"
+            
+            # Filter results to prioritize programming languages
+            programming_keywords = ["programming", "language", "python", "java", "c++", "javascript"]
+            
+            best_title = None
+            for result in results:
+                title = result.get("title", "")
+                # If it's a programming language, pick it
+                if any(keyword in title.lower() for keyword in programming_keywords):
+                    best_title = title
+                    break
+            # If no programming match, take the first result
+            if not best_title and results:
+                best_title = results[0].get("title")
+            
+            if best_title:
+                # Fetch the summary for the best title
+                summary_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{quote(best_title)}"
                 summary_resp = requests.get(summary_url, headers=HEADERS, timeout=5)
                 if summary_resp.status_code == 200:
                     summary_data = summary_resp.json()
                     if "extract" in summary_data:
-                        return summary_data["extract"], title
+                        return summary_data["extract"], best_title
+    except Exception as e:
+        st.error(f"Search error: {e}")
+    
+    # Step 2: Fallback – try direct page
+    direct_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{quote(search_term)}"
+    try:
+        resp = requests.get(direct_url, headers=HEADERS, timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            if "extract" in data:
+                return data["extract"], search_term
     except:
         pass
-
+    
     return None, None
 
 def get_wikipedia_summary(query):
     summary, title = search_wikipedia(query)
     if summary:
-        return f"**{title}**: {summary}"
+        # Truncate if too long
+        if len(summary) > 500:
+            summary = summary[:500] + "..."
+        return f"**{title}**:\n\n{summary}"
     else:
         return f"Could not find a Wikipedia page for '{query}'. Please try a different question."
 
