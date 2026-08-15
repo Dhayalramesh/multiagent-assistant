@@ -27,7 +27,7 @@ def clean_query(query):
     if not cleaned:
         cleaned = query.strip()
     
-    # Special cases
+    # Special cases: use simple names (Wikipedia will redirect)
     cleaned = cleaned.strip()
     if cleaned.lower() == "ai":
         return "AI"
@@ -37,10 +37,7 @@ def clean_query(query):
         return "C#"
     if cleaned.lower() == "r":
         return "R (programming language)"
-    if cleaned.lower() == "python":
-        return "Python (programming language)"
-    if cleaned.lower() == "java":
-        return "Java (programming language)"
+    # For Python, Java etc. just use the name without qualifier
     return cleaned.capitalize()
 
 # ---------- Main logic ----------
@@ -48,13 +45,25 @@ def get_wikipedia_summary(query):
     search_term = clean_query(query)
     encoded = quote(search_term)
     url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{encoded}"
+    
     try:
         response = requests.get(url, timeout=5)
         if response.status_code == 200:
             data = response.json()
             if "extract" in data:
                 return data["extract"]
-        return f"Could not find a Wikipedia page for '{search_term}'."
+        
+        # Fallback: try with the original query
+        fallback_encoded = quote(query.strip())
+        fallback_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{fallback_encoded}"
+        response = requests.get(fallback_url, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            if "extract" in data:
+                return data["extract"]
+        
+        # If all fails, show what we tried
+        return f"Could not find a Wikipedia page for '{search_term}'. Tried:\n- {url}\n- {fallback_url}"
     except Exception as e:
         return f"Error fetching data: {e}"
 
