@@ -5,7 +5,20 @@ import requests
 from urllib.parse import quote
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
-# Load model and tokenizer (CPU)
+# ---------- VERSION CHECK ----------
+st.write("🚀 VERSION 5.0 - Live Wikipedia Search")
+
+# Test Wikipedia API
+try:
+    test_response = requests.get("https://en.wikipedia.org/api/rest_v1/page/summary/Python", timeout=5)
+    if test_response.status_code == 200:
+        st.success("✅ Wikipedia API is working!")
+    else:
+        st.error(f"❌ Wikipedia API error: {test_response.status_code}")
+except Exception as e:
+    st.error(f"❌ Network error: {e}")
+
+# ---------- LOAD MODEL ----------
 @st.cache_resource
 def load_model():
     tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-small")
@@ -27,6 +40,7 @@ def generate_text(prompt: str, max_new_tokens=150) -> str:
         )
     return tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
 
+# ---------- AGENT ----------
 class ResearchAssistant:
     MAX_STEPS = 5
     def __init__(self):
@@ -58,8 +72,6 @@ class ResearchAssistant:
         return {"plan": ["search", "extract", "write"]}
 
     def _clean_query(self, query):
-        """Extract the main entity from a question and format it for Wikipedia."""
-        # Remove common question prefixes
         prefixes = [
             "what is ", "what are ", "what's ",
             "who is ", "who are ", "who's ",
@@ -70,7 +82,6 @@ class ResearchAssistant:
             "define ", "definition of "
         ]
         cleaned = query.lower().strip()
-        # Remove trailing punctuation
         if cleaned.endswith('?'):
             cleaned = cleaned[:-1]
         for prefix in prefixes:
@@ -80,30 +91,27 @@ class ResearchAssistant:
         if not cleaned:
             cleaned = query.strip()
         
-        # Special cases for Wikipedia page titles
         cleaned = cleaned.strip()
+        # Special cases
         if cleaned.lower() == "ai":
-            return "AI"  # Wikipedia page is "AI" (all caps)
+            return "AI"
         if cleaned.lower() == "c++":
-            return "C++"  # Wikipedia page is "C++"
+            return "C++"
         if cleaned.lower() == "c#":
             return "C#"
         if cleaned.lower() == "r":
-            return "R (programming language)"  # Disambiguation
+            return "R (programming language)"
         if cleaned.lower() == "python":
-            return "Python (programming language)"  # Avoid the snake
+            return "Python (programming language)"
         if cleaned.lower() == "java":
-            return "Java (programming language)"  # Avoid the island
+            return "Java (programming language)"
         
-        # Capitalize first letter for Wikipedia
         return cleaned.capitalize()
 
     def _search(self, query):
         """Search Wikipedia for a concise summary."""
         try:
-            # Clean the query to extract the main entity
             search_term = self._clean_query(query)
-            # URL-encode the search term
             encoded_term = quote(search_term)
             url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{encoded_term}"
             
@@ -118,7 +126,7 @@ class ResearchAssistant:
                     if facts:
                         return facts
             
-            # If Wikipedia fails, try a fallback with the original query
+            # Fallback
             fallback_term = quote(query.strip())
             fallback_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{fallback_term}"
             response = requests.get(fallback_url, timeout=5)
@@ -177,7 +185,7 @@ class ResearchAssistant:
                 return {"answer": summary, "log": self.log, "status": "success"}
         return {"answer": "No summary generated.", "log": self.log, "status": "incomplete"}
 
-# Streamlit UI
+# ---------- UI ----------
 st.set_page_config(page_title="Multi-Agent Research Assistant", layout="wide")
 st.title("🔍 Multi‑Agent Research Assistant")
 st.markdown("Ask a question, and the agent will **plan → search → extract → write** a summary.")
