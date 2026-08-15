@@ -1,26 +1,23 @@
 import streamlit as st
 import json
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+from transformers import pipeline
 
-# Load model once with caching
+# Load the pipeline once with caching
 @st.cache_resource
-def load_model():
-    model_name = "google/flan-t5-small"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-    return tokenizer, model
-
-tokenizer, model = load_model()
-
-def generate_text(prompt: str, max_new_tokens=150) -> str:
-    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
-    outputs = model.generate(
-        **inputs,
-        max_new_tokens=max_new_tokens,
-        do_sample=False,
-        pad_token_id=tokenizer.eos_token_id
+def load_pipeline():
+    # Use CPU, small model
+    return pipeline(
+        "text2text-generation",
+        model="google/flan-t5-small",
+        device=-1,  # CPU
+        max_length=200
     )
-    return tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
+
+pipe = load_pipeline()
+
+def generate_text(prompt: str) -> str:
+    result = pipe(prompt, max_new_tokens=150, do_sample=False)[0]['generated_text']
+    return result.strip()
 
 class ResearchAssistant:
     MAX_STEPS = 5
@@ -74,6 +71,7 @@ class ResearchAssistant:
         for step in steps:
             self._circuit_breaker()
             if step == "search":
+                # Simulated search – replace with real API later
                 if "python" in query.lower():
                     raw_results = ["Python is a programming language.", "Python is interpreted."]
                 elif "ai" in query.lower():
