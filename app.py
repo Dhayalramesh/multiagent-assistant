@@ -1,15 +1,25 @@
-import gradio as gr
+import streamlit as st
 import json
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
-# Load model
-model_name = "google/flan-t5-small"
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+# Load model once with caching
+@st.cache_resource
+def load_model():
+    model_name = "google/flan-t5-small"
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+    return tokenizer, model
+
+tokenizer, model = load_model()
 
 def generate_text(prompt: str, max_new_tokens=150) -> str:
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
-    outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False, pad_token_id=tokenizer.eos_token_id)
+    outputs = model.generate(
+        **inputs,
+        max_new_tokens=max_new_tokens,
+        do_sample=False,
+        pad_token_id=tokenizer.eos_token_id
+    )
     return tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
 
 class ResearchAssistant:
@@ -81,17 +91,23 @@ class ResearchAssistant:
                 return {"answer": summary, "log": self.log, "status": "success"}
         return {"answer": "No summary.", "log": self.log, "status": "incomplete"}
 
-def run_agent(query):
-    agent = ResearchAssistant()
-    result = agent.run(query)
-    return result.get("answer", "No answer"), json.dumps(result.get("log", []), indent=2)
+# Streamlit UI
+st.set_page_config(page_title="Multi-Agent Research Assistant", layout="wide")
+st.title("🔍 Multi‑Agent Research Assistant")
+st.markdown("Ask a question, and the agent will **plan → search → extract → write** a summary.")
 
-with gr.Blocks(title="Multi-Agent Research Assistant") as demo:
-    gr.Markdown("# Multi‑Agent Research Assistant")
-    query_input = gr.Textbox(label="Your Question", placeholder="e.g., What is Python?")
-    submit_btn = gr.Button("Run Agent")
-    answer_output = gr.Textbox(label="Answer", lines=3)
-    log_output = gr.Textbox(label="Step‑by‑Step Log", lines=10)
-    submit_btn.click(fn=run_agent, inputs=query_input, outputs=[answer_output, log_output])
-
-demo.launch()
+query = st.text_input("Your Question", placeholder="e.g., What is Python?")
+if st.button("Run Agent"):
+    if query:
+        with st.spinner("Agent is thinking..."):
+            agent = ResearchAssistant()
+            result = agent.run(query)
+            answer = result.get("answer", "No answer")
+            log = json.dumps(result.get("log", []), indent=2)
+        st.success("Done!")
+        st.subheader("Answer")
+        st.write(answer)
+        st.subheader("Step-by-Step Log")
+        st.code(log, language="json")
+    else:
+        st.warning("Please enter a question.")
