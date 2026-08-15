@@ -1,23 +1,29 @@
 import streamlit as st
 import json
-from transformers import pipeline
+import torch
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
-# Load the pipeline once with caching
+# Load model and tokenizer (CPU)
 @st.cache_resource
-def load_pipeline():
-    # Use CPU, small model
-    return pipeline(
-        "text2text-generation",
-        model="google/flan-t5-small",
-        device=-1,  # CPU
-        max_length=200
-    )
+def load_model():
+    tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-small")
+    model = AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-small")
+    model.to("cpu")   # Force CPU (safety)
+    return tokenizer, model
 
-pipe = load_pipeline()
+tokenizer, model = load_model()
 
-def generate_text(prompt: str) -> str:
-    result = pipe(prompt, max_new_tokens=150, do_sample=False)[0]['generated_text']
-    return result.strip()
+def generate_text(prompt: str, max_new_tokens=150) -> str:
+    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
+    inputs = {k: v.to("cpu") for k, v in inputs.items()}  # ensure CPU
+    with torch.no_grad():
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+            do_sample=False,
+            pad_token_id=tokenizer.eos_token_id
+        )
+    return tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
 
 class ResearchAssistant:
     MAX_STEPS = 5
@@ -71,7 +77,6 @@ class ResearchAssistant:
         for step in steps:
             self._circuit_breaker()
             if step == "search":
-                # Simulated search – replace with real API later
                 if "python" in query.lower():
                     raw_results = ["Python is a programming language.", "Python is interpreted."]
                 elif "ai" in query.lower():
