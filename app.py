@@ -58,7 +58,7 @@ class ResearchAssistant:
         return {"plan": ["search", "extract", "write"]}
 
     def _clean_query(self, query):
-        """Extract the main entity from a question."""
+        """Extract the main entity from a question and format it for Wikipedia."""
         # Remove common question prefixes
         prefixes = [
             "what is ", "what are ", "what's ",
@@ -66,16 +66,35 @@ class ResearchAssistant:
             "where is ", "where are ",
             "when is ", "when was ",
             "how to ", "how do ",
-            "tell me about ", "explain "
+            "tell me about ", "explain ",
+            "define ", "definition of "
         ]
         cleaned = query.lower().strip()
+        # Remove trailing punctuation
+        if cleaned.endswith('?'):
+            cleaned = cleaned[:-1]
         for prefix in prefixes:
             if cleaned.startswith(prefix):
                 cleaned = cleaned[len(prefix):]
                 break
-        # If nothing remains, use the original
         if not cleaned:
             cleaned = query.strip()
+        
+        # Special cases for Wikipedia page titles
+        cleaned = cleaned.strip()
+        if cleaned.lower() == "ai":
+            return "AI"  # Wikipedia page is "AI" (all caps)
+        if cleaned.lower() == "c++":
+            return "C++"  # Wikipedia page is "C++"
+        if cleaned.lower() == "c#":
+            return "C#"
+        if cleaned.lower() == "r":
+            return "R (programming language)"  # Disambiguation
+        if cleaned.lower() == "python":
+            return "Python (programming language)"  # Avoid the snake
+        if cleaned.lower() == "java":
+            return "Java (programming language)"  # Avoid the island
+        
         # Capitalize first letter for Wikipedia
         return cleaned.capitalize()
 
@@ -84,7 +103,7 @@ class ResearchAssistant:
         try:
             # Clean the query to extract the main entity
             search_term = self._clean_query(query)
-            # URL-encode the search term (handles C++, C#, etc.)
+            # URL-encode the search term
             encoded_term = quote(search_term)
             url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{encoded_term}"
             
@@ -94,14 +113,12 @@ class ResearchAssistant:
                 data = response.json()
                 if "extract" in data:
                     summary = data["extract"]
-                    # Split into sentences and return first 3 as separate facts
                     sentences = summary.split('. ')
                     facts = [s.strip() + '.' for s in sentences[:3] if s.strip()]
                     if facts:
                         return facts
             
             # If Wikipedia fails, try a fallback with the original query
-            # Sometimes the page exists under a slightly different name
             fallback_term = quote(query.strip())
             fallback_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{fallback_term}"
             response = requests.get(fallback_url, timeout=5)
@@ -119,11 +136,9 @@ class ResearchAssistant:
             return [f"Could not fetch info for '{query}': {str(e)}"]
 
     def _extract(self, results, query):
-        """Extract key sentences from search results."""
         return results
 
     def write_summary(self, facts, query):
-        """Generate a concise answer using the LLM, with a better prompt."""
         if not facts:
             return "No facts found to answer your question."
         context = " ".join(facts)
