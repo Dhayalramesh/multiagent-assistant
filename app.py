@@ -2,6 +2,7 @@ import streamlit as st
 import json
 import torch
 import requests
+from urllib.parse import quote
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
 # Load model and tokenizer (CPU)
@@ -56,12 +57,39 @@ class ResearchAssistant:
             pass
         return {"plan": ["search", "extract", "write"]}
 
+    def _clean_query(self, query):
+        """Extract the main entity from a question."""
+        # Remove common question prefixes
+        prefixes = [
+            "what is ", "what are ", "what's ",
+            "who is ", "who are ", "who's ",
+            "where is ", "where are ",
+            "when is ", "when was ",
+            "how to ", "how do ",
+            "tell me about ", "explain "
+        ]
+        cleaned = query.lower().strip()
+        for prefix in prefixes:
+            if cleaned.startswith(prefix):
+                cleaned = cleaned[len(prefix):]
+                break
+        # If nothing remains, use the original
+        if not cleaned:
+            cleaned = query.strip()
+        # Capitalize first letter for Wikipedia
+        return cleaned.capitalize()
+
     def _search(self, query):
         """Search Wikipedia for a concise summary."""
         try:
-            # Wikipedia REST API for page summary
-            url = "https://en.wikipedia.org/api/rest_v1/page/summary/" + query.replace(" ", "_")
+            # Clean the query to extract the main entity
+            search_term = self._clean_query(query)
+            # URL-encode the search term (handles C++, C#, etc.)
+            encoded_term = quote(search_term)
+            url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{encoded_term}"
+            
             response = requests.get(url, timeout=5)
+            
             if response.status_code == 200:
                 data = response.json()
                 if "extract" in data:
@@ -71,15 +99,27 @@ class ResearchAssistant:
                     facts = [s.strip() + '.' for s in sentences[:3] if s.strip()]
                     if facts:
                         return facts
-            # Fallback if no extract or page not found
-            return [f"Wikipedia did not return a result for '{query}'. Please try a different query."]
+            
+            # If Wikipedia fails, try a fallback with the original query
+            # Sometimes the page exists under a slightly different name
+            fallback_term = quote(query.strip())
+            fallback_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{fallback_term}"
+            response = requests.get(fallback_url, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                if "extract" in data:
+                    summary = data["extract"]
+                    sentences = summary.split('. ')
+                    facts = [s.strip() + '.' for s in sentences[:3] if s.strip()]
+                    if facts:
+                        return facts
+            
+            return [f"Wikipedia did not return a result for '{search_term}'. Please try a different query."]
         except Exception as e:
             return [f"Could not fetch info for '{query}': {str(e)}"]
 
     def _extract(self, results, query):
-        """Extract key sentences from search results (already just facts)."""
-        # For Wikipedia, results are already meaningful sentences
-        # We keep them as is; no further extraction needed.
+        """Extract key sentences from search results."""
         return results
 
     def write_summary(self, facts, query):
