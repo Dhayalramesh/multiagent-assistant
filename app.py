@@ -1,6 +1,7 @@
 import streamlit as st
 import json
 import torch
+import requests
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
 # Load model and tokenizer (CPU)
@@ -42,8 +43,6 @@ class ResearchAssistant:
             raise RuntimeError("Circuit breaker: exceeded max steps")
 
     def plan(self, query):
-        # Simpler plan – we can hardcode the steps to avoid LLM confusion
-        # But we keep the LLM plan for flexibility with a better prompt
         prompt = f"Given: '{query}', plan a research strategy: search, extract, write. Output JSON with 'plan' list."
         response = generate_text(prompt)
         try:
@@ -55,55 +54,41 @@ class ResearchAssistant:
                     return plan
         except:
             pass
-        # Fallback: use a fixed plan
         return {"plan": ["search", "extract", "write"]}
 
     def _search(self, query):
-        """Enhanced simulated search with more facts."""
-        q_lower = query.lower()
-        if "python" in q_lower:
-            return [
-                "Python is a high-level, interpreted programming language.",
-                "Python is known for its simplicity and readability.",
-                "Python is widely used in data science, web development, and automation."
-            ]
-        elif "java" in q_lower:
-            return [
-                "Java is a high-level, class-based, object-oriented programming language.",
-                "Java is designed to have as few implementation dependencies as possible.",
-                "Java is used for building enterprise-scale applications and Android mobile apps."
-            ]
-        elif "ai" in q_lower or "artificial intelligence" in q_lower:
-            return [
-                "Artificial Intelligence (AI) is the simulation of human intelligence in machines.",
-                "AI includes machine learning, deep learning, and natural language processing.",
-                "AI is used in robotics, healthcare, finance, and autonomous vehicles."
-            ]
-        else:
-            return [f"Result for {query}: {query} is a broad topic."]
+        """Search Wikipedia for a concise summary."""
+        try:
+            # Wikipedia REST API for page summary
+            url = "https://en.wikipedia.org/api/rest_v1/page/summary/" + query.replace(" ", "_")
+            response = requests.get(url, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                if "extract" in data:
+                    summary = data["extract"]
+                    # Split into sentences and return first 3 as separate facts
+                    sentences = summary.split('. ')
+                    facts = [s.strip() + '.' for s in sentences[:3] if s.strip()]
+                    if facts:
+                        return facts
+            # Fallback if no extract or page not found
+            return [f"Wikipedia did not return a result for '{query}'. Please try a different query."]
+        except Exception as e:
+            return [f"Could not fetch info for '{query}': {str(e)}"]
 
     def _extract(self, results, query):
-        """Extract key sentences from search results."""
-        # For simplicity, we just take the first sentence of each result.
-        extracted = []
-        for r in results:
-            # Split by period and take first non-empty part
-            sentences = r.split('.')
-            if sentences:
-                first = sentences[0].strip()
-                if first:
-                    extracted.append(first)
-        return extracted
+        """Extract key sentences from search results (already just facts)."""
+        # For Wikipedia, results are already meaningful sentences
+        # We keep them as is; no further extraction needed.
+        return results
 
     def write_summary(self, facts, query):
         """Generate a concise answer using the LLM, with a better prompt."""
         if not facts:
             return "No facts found to answer your question."
-        # Combine facts into a concise context
         context = " ".join(facts)
         prompt = f"Question: {query}\nFacts: {context}\nAnswer the question concisely based on the facts."
         response = generate_text(prompt, max_new_tokens=100)
-        # If response is too short or empty, fall back to the first fact
         if len(response) < 5:
             return facts[0]
         return response
